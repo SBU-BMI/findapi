@@ -8,8 +8,23 @@ var mongoClient = require("mongodb").MongoClient,
 
 const http = require('http');
 
-// docker ip and mapped port
-const mongoUrl = "mongodb://172.17.0.1:27015/";
+var mongoUrl = "";
+var monhost = process.env.MONHOST;
+var monport = process.env.MONPORT;
+
+console.log("MONHOST", monhost);
+console.log("MONPORT", monport);
+
+if (monhost && monport)
+{
+    console.log("Got MongoDB host and port");
+    mongoUrl = "mongodb://" + monhost + ":" + monport + "/";
+}
+else
+{
+    console.log("Docker IP and mapped port");
+    mongoUrl = "mongodb://172.17.0.1:27015/";
+}
 
 function handleRequest(request, response) {
     console.log(Date());
