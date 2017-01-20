@@ -8,8 +8,7 @@ import pwd
 
 
 def usage():
-    print '\nUsage: ' + sys.argv[0] + ' -w <webport>\n'
-    # print '\nUsage: ' + sys.argv[0] + ' -m <mongohost> -p <mongoport> -w <webport>\n'
+    print '\nUsage: ' + sys.argv[0] + ' -m <mongohost> -p <mongoport> -w <webport>\n'
 
 
 def get_username():
@@ -21,8 +20,7 @@ def main(argv):
     mongoport = ''
     webport = ''
     try:
-        opts, args = getopt.getopt(argv, "hw:", ["webport="])
-        # opts, args = getopt.getopt(argv, "hm:p:w:", ["mongohost=", "mongoport=", "webport="])
+        opts, args = getopt.getopt(argv, "hm:p:w:", ["mongohost=", "mongoport=", "webport="])
     except getopt.GetoptError:
         usage()
         sys.exit(2)
@@ -30,25 +28,23 @@ def main(argv):
         if opt == '-h':
             usage()
             sys.exit()
-        # elif opt in ("-m", "--mongohost"):
-            # mongohost = arg
-        # elif opt in ("-p", "--mongoport"):
-            # mongoport = arg
+        elif opt in ("-m", "--mongohost"):
+            mongohost = arg
+        elif opt in ("-p", "--mongoport"):
+            mongoport = arg
         elif opt in ("-w", "--webport"):
             webport = arg
 
-    # print 'mongohost is ', mongohost
-    # print 'mongoport is ', mongoport
+    print 'mongohost is ', mongohost
+    print 'mongoport is ', mongoport
     print 'webport is ', webport
 
-    if webport == '':
+    if webport == '' and mongoport == '' and mongohost == '':
         usage()
         sys.exit()
 
     user = get_username()
-    # Start Docker container
-    run_cmd = "docker run -p " + webport + ":3000 --name " + user + "-findapi -d sbubmi/findapi"
-    print run_cmd
+    run_cmd = "docker run -e MONHOST=" + mongohost + " -e MONPORT=" + mongoport + " -p " + webport + ":3000 --name " + user + "-findapi -d sbubmi/findapi"
     subprocess.call(run_cmd, shell=True)
 
 
