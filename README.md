@@ -1,6 +1,6 @@
 ## findapi
 
-###RESTful API FOR SEARCHING MongoDB
+###RESTful API for querying MongoDB
 
 **Parameters:**
 
