@@ -111,6 +111,10 @@ function handleRequest(request, response) {
             } else {
                 parms.find = recode(parms.find, parms);
             }
+	    if (parms.offset) {
+               parms.offset = recode(parms.offset,parms);
+               parms.find._id={"$gt":parms.offset};
+	    }
 
             if (!parms.project) { // project
                 parms.project = {};
