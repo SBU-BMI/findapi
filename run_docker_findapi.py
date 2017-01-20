@@ -46,6 +46,7 @@ def main(argv):
         sys.exit()
 
     user = get_username()
+    # Start Docker container
     run_cmd = "docker run -p " + webport + ":3000 --name " + user + "-findapi -d sbubmi/findapi"
     print run_cmd
     subprocess.call(run_cmd, shell=True)
