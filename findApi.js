@@ -130,7 +130,6 @@ function handleRequest(request, response) {
             if (!parms.err) {
 
                 console.log("parms:", JSON.stringify(parms));
-                console.log("xxx", parms.mongoUrl);
 
                 mongoClient.connect(parms.mongoUrl, function (err, db) {
 
