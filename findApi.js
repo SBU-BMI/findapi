@@ -74,8 +74,18 @@ function handleRequest(request, response) {
             } // <-- default db
 
             if (!parms.mongoUrl) {
-                parms.mongoUrl = mongoUrl + parms.db;
-            } // <-- default mongo
+                parms.mongoUrl = mongoUrl + parms.db; // <-- default mongo
+            }
+            else {
+                var str = parms.mongoUrl;
+                if (str.endsWith("/")) {
+                    parms.mongoUrl += parms.db;
+                }
+                else {
+                    parms.mongoUrl += ("/" + parms.db);
+                }
+
+            }
 
             if (!parms.collection) {
                 parms.collection = collection;
@@ -101,12 +111,13 @@ function handleRequest(request, response) {
             if (!parms.err) {
 
                 console.log("parms:", JSON.stringify(parms));
+                console.log("xxx", parms.mongoUrl);
 
                 mongoClient.connect(parms.mongoUrl, function (err, db) {
 
                     if (err) {
                         console.log("Unable to connect to the MongoDB server. Error: ", err);
-                        response.end(JSON.stringify({"Unable to connect to the MongoDB server. Error: " : err}));
+                        response.end(JSON.stringify({"Unable to connect to the MongoDB server. Error: ": err}));
                     } else {
 
                         db.collection(parms.collection).find(parms.find, parms.project, {
