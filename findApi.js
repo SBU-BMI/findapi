@@ -106,7 +106,7 @@ function handleRequest(request, response) {
 
                     if (err) {
                         console.log("Unable to connect to the MongoDB server. Error: ", err);
-                        response.end(JSON.stringify({}));
+                        response.end(JSON.stringify({"Unable to connect to the MongoDB server. Error: " : err}));
                     } else {
 
                         db.collection(parms.collection).find(parms.find, parms.project, {
@@ -134,10 +134,9 @@ function handleRequest(request, response) {
                 response.end(JSON.stringify({}));
             }
         }
-else
-{
-response.end(JSON.stringify({"required":"limit=#"}));
-}
+        else {
+            response.end(JSON.stringify({"required": "limit=#"}));
+        }
     }
 }
 
