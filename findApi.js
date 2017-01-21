@@ -1,6 +1,7 @@
 // findApi.js
 // ========
 var mongoClient = require("mongodb").MongoClient,
+    ObjectID = require('mongodb').ObjectID,
     url = require("url"),
     port = 3000,
     db = "u24_luad",
@@ -113,6 +114,7 @@ function handleRequest(request, response) {
             }
 	    if (parms.offset) {
                parms.offset = recode(parms.offset,parms);
+               parms.offset = new ObjectID.createFromHexString(parms.offet);
                parms.find._id={"$gt":parms.offset};
 	    }
 
