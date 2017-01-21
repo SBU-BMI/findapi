@@ -12,6 +12,7 @@ WORKDIR /usr/src/app
 RUN cp /findapi/package.json /usr/src/app/
 RUN cp /findapi/findApi.js /usr/src/app/
 RUN npm install
+RUN npm install forever -g
 
 EXPOSE 3000
-CMD [ "npm", "start" ]
+CMD [ "forever", "findApi.js" ]
