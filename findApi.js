@@ -114,7 +114,7 @@ function handleRequest(request, response) {
             }
 	    if (parms.offset) {
                parms.offset = recode(parms.offset,parms);
-               parms.offset = new ObjectID.createFromHexString(parms.offet);
+               parms.offset = new ObjectID.createFromHexString(parms.offset);
                parms.find._id={"$gt":parms.offset};
 	    }
 
