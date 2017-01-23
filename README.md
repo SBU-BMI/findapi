@@ -14,7 +14,7 @@ Please pull the docker container. Then use the Python script to start the contai
 
 ##Usage
 
-**Parameters:**
+**Parameters to findapi:**
 
 * collection
 * db
