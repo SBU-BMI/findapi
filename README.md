@@ -2,12 +2,14 @@
 findapi is a RESTful API for querying MongoDB
 
 ##Docker container deployment
-Docker container: `docker pull sbubmi/findapi`
 
-Please use the Python script to start the container, providing your MongoDB instance host and port, and the HTTP port you would like to use:
+Please pull the docker container. Then use the Python script to start the container, providing your MongoDB instance host and port, and the HTTP port you would like to use:
 
-Example:
-`python run_docker_findapi.py -m <mongohost> -p <mongoport> -w <webport>`
+* `docker pull sbubmi/findapi`
+* `git clone https://github.com/SBU-BMI/findapi.git`
+* `cd findapi`
+* Substitute your parameters:
+* `python run_docker_findapi.py -m <mongohost> -p <mongoport> -w <webport>`
 
 
 ##Usage
