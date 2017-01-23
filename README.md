@@ -1,5 +1,5 @@
 # findapi
-findapi is a RESTful API for querying MongoDB
+findapi is a RESTful API for querying MongoDB. It implements [JSON syntax](http://www.json.org/).  And it is read-only (eg. GET; no put/post/delete).
 
 ##Docker container deployment
 
