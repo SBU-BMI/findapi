@@ -1,5 +1,14 @@
 ## findapi
 
+###Docker container deployment
+Docker container: docker pull sbubmi/findapi
+
+Please use the Python script to start the container, providing your MongoDB instance host and port, and the HTTP port you would like to use:
+
+Example:
+`python run_docker_findapi.py -m <mongohost> -p <mongoport> -w <webport>`
+
+
 ###RESTful API for querying MongoDB
 
 **Parameters:**
