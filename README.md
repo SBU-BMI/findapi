@@ -1,7 +1,7 @@
 # findapi
 findapi is a RESTful API for querying MongoDB. It implements [JSON syntax](http://www.json.org/).  And it is read-only (eg. GET; no put/post/delete).
 
-##Docker container deployment
+## Docker container deployment
 
 Please pull the docker container. Then use the Python script to start the container, providing your MongoDB instance host and port, and the HTTP port you would like to use:
 
