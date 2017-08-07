@@ -2,7 +2,7 @@ FROM node:latest
 
 RUN apt-get update
 
-RUN git clone https://github.com/SBU-BMI/findapi.git
+RUN git clone -b release https://github.com/SBU-BMI/findapi.git
 
 # Create app directory
 RUN mkdir -p /usr/src/app
