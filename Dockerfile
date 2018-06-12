@@ -2,7 +2,8 @@ FROM node:latest
 
 RUN apt-get update
 
-RUN git clone -b release https://github.com/SBU-BMI/findapi.git
+RUN git clone https://github.com/SBU-BMI/findapi.git
+RUN cd /findapi; git checkout tags/2.0
 
 # Create app directory
 RUN mkdir -p /usr/src/app
