@@ -7,6 +7,9 @@ var mongoClient = require("mongodb").MongoClient,
     db = "u24_luad",
     collection = "objects";
 
+var jwt = require('jsonwebtoken');
+var secret = process.env.JWT_SECRET || "CHANGE_THIS_TO_SOMETHING_RANDOM"; // super secret
+
 const http = require('http');
 
 var mongoUrl = "";
@@ -16,159 +19,194 @@ var monport = process.env.MONPORT;
 console.log("MONHOST", monhost);
 console.log("MONPORT", monport);
 
-if (monhost && monport)
-{
+if (monhost && monport) {
     console.log("Got MongoDB host and port");
     mongoUrl = "mongodb://" + monhost + ":" + monport + "/";
 }
-else
-{
+else {
     console.log("Docker IP and mapped port");
-    mongoUrl = "mongodb://172.17.0.1:27015/";
+    //mongoUrl = "mongodb://172.17.0.1:27015/";
+    mongoUrl = "mongodb://127.0.0.1:27017/";
+
+}
+
+function verify(token) {
+    var decoded = false;
+    try {
+        decoded = jwt.verify(token, secret);
+    } catch (e) {
+        decoded = false; // still false
+    }
+    return decoded;
+}
+
+// show fail page (login)
+function authFail(res) {
+    res.writeHead(401, {'content-type': 'text/html'});
+    return res.end("Epic fail! Back to login!"); // send to login
 }
 
 function handleRequest(request, response) {
     console.log(Date());
-    var urlString = request.url,
-        parms = {}, // search parms
-        urlObject,
-        max = 10000, // maximum number of records at a time
-        med = 0; // default number of records at a time
 
-    if (urlString.endsWith(";")) {
-        urlString = urlString.slice(0, -1);
-    }
+    // PTF: Self-signed token.
+    var user = {id: 3};
+    var token = jwt.sign({user: user.id}, secret);
+    //var token = request.headers.authorization;
 
-    console.log("urlString", urlString);
-    urlObject = url.parse(urlString);
+    var decoded = verify(token);
+    if (!decoded) {
+        authFail(response);
 
-    if (urlString.indexOf("favicon.ico") !== -1) {
-        response.end(""); //<-- favicon being requested
     } else {
+        response.writeHead(200, {
+            'content-type': 'text/html',
+            'authorization': token
+        });
 
-        console.log("Client IP: " + request.ip);
-        console.log("Client Address: " + request.connection.remoteAddress);
+        var urlString = request.url,
+            parms = {}, // search parms
+            urlObject,
+            max = 10000, // maximum number of records at a time
+            med = 0; // default number of records at a time
 
-        if (urlObject.search) {
+        if (urlString.endsWith(";")) {
+            urlString = urlString.slice(0, -1);
+        }
 
-            var str = urlObject.search.slice(1);
-            //delete stuff off the end that does not belong there
-            //eg. &_=1467995391225
-            if (str.indexOf("&_=") > -1)
-                str = str.substring(0, str.indexOf("&_="));
+        console.log("urlString", urlString);
+        urlObject = url.parse(urlString);
 
-            //if (urlObject.search) { // parse request parameters
-            str.split("&").forEach(function (pp) {
-                pp = pp.split("=");
-                if (parseFloat(pp[1])) {
-                    pp[1] = parseFloat(pp[1]);
+        if (urlString.indexOf("favicon.ico") !== -1) {
+            response.end(""); //<-- favicon being requested
+        } else {
+
+            console.log("Client IP: " + request.ip);
+            console.log("Client Address: " + request.connection.remoteAddress);
+
+            if (urlObject.search) {
+
+                var str = urlObject.search.slice(1);
+                //delete stuff off the end that does not belong there
+                //eg. &_=1467995391225
+                if (str.indexOf("&_=") > -1)
+                    str = str.substring(0, str.indexOf("&_="));
+
+                //if (urlObject.search) { // parse request parameters
+                str.split("&").forEach(function (pp) {
+                    pp = pp.split("=");
+                    if (parseFloat(pp[1])) {
+                        pp[1] = parseFloat(pp[1]);
+                    }
+                    parms[pp[0]] = pp[1];
+                });
+                //}
+
+                // default parameter values
+                if (!parms.limit) {
+                    parms.limit = med;
+                    response.end("");
+                    console.log("Request with no limit parameter!");
+                    return;
                 }
-                parms[pp[0]] = pp[1];
-            });
-            //}
 
-            // default parameter values
-            if (!parms.limit) {
-                parms.limit = med;
-                response.end("");
-                console.log("Request with no limit parameter!");
-                return;
-            }
+                if (parms.limit === 0) {
+                    response.end("");
+                    console.log("Request with limit===0!");
+                    return;
+                }
 
-            if (parms.limit === 0) {
-                response.end("");
-                console.log("Request with limit===0!");
-                return;
-            }
+                if (parms.limit > max) {
+                    parms.limit = max;
+                }
 
-            if (parms.limit > max) {
-                parms.limit = max;
-            }
+                if (!parms.db) {
+                    parms.db = db;
+                } // <-- default db
 
-            if (!parms.db) {
-                parms.db = db;
-            } // <-- default db
-
-            if (!parms.mongoUrl) {
-                parms.mongoUrl = mongoUrl + parms.db; // <-- default mongo
-            }
-            else {
-                var str = parms.mongoUrl;
-                if (str.endsWith("/")) {
-                    parms.mongoUrl += parms.db;
+                if (!parms.mongoUrl) {
+                    parms.mongoUrl = mongoUrl + parms.db; // <-- default mongo
                 }
                 else {
-                    parms.mongoUrl += ("/" + parms.db);
-                }
-
-            }
-
-            if (!parms.collection) {
-                parms.collection = collection;
-            } // <-- default collection
-
-            if (!parms.find) { // find
-                parms.find = {};
-            } else {
-                parms.find = recode(parms.find, parms);
-            }
-	    if (parms.offset) {
-               parms.offset = recode(parms.offset,parms);
-               parms.offset = new ObjectID.createFromHexString(parms.offset);
-               parms.find._id={"$gt":parms.offset};
-	    }
-
-            if (!parms.project) { // project
-                parms.project = {};
-            } else {
-                parms.project = recode(parms.project, parms);
-            }
-
-            response.writeHead(200, {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*"
-            });
-
-            if (!parms.err) {
-
-                console.log("parms:", JSON.stringify(parms));
-
-                mongoClient.connect(parms.mongoUrl, function (err, db) {
-
-                    if (err) {
-                        console.log("Unable to connect to the MongoDB server. Error: ", err);
-                        response.end(JSON.stringify({"Unable to connect to the MongoDB server. Error: ": err}));
-                    } else {
-
-                        db.collection(parms.collection).find(parms.find, parms.project, {
-                            limit: parms.limit
-                        }).toArray(function (err1, docs) {
-                            if (err1) {
-                                console.log("toArray() error: ", err1);
-                                response.end(JSON.stringify({}));
-                            } else {
-                                if (docs !== null) {
-                                    db.close();
-                                    response.end(JSON.stringify(docs));
-                                } else {
-                                    db.close();
-                                    response.end(JSON.stringify({}));
-                                }
-                            }
-                        });
+                    var str = parms.mongoUrl;
+                    if (str.endsWith("/")) {
+                        parms.mongoUrl += parms.db;
+                    }
+                    else {
+                        parms.mongoUrl += ("/" + parms.db);
                     }
 
+                }
+
+                if (!parms.collection) {
+                    parms.collection = collection;
+                } // <-- default collection
+
+                if (!parms.find) { // find
+                    parms.find = {};
+                } else {
+                    parms.find = recode(parms.find, parms);
+                }
+                if (parms.offset) {
+                    parms.offset = recode(parms.offset, parms);
+                    parms.offset = new ObjectID.createFromHexString(parms.offset);
+                    parms.find._id = {"$gt": parms.offset};
+                }
+
+                if (!parms.project) { // project
+                    parms.project = {};
+                } else {
+                    parms.project = recode(parms.project, parms);
+                }
+
+                response.writeHead(200, {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*"
                 });
-            } else {
-                console.log("parms.err", parms.err);
-                console.log("parms.err.error.message", parms.err.error.message);
-                response.end(JSON.stringify({}));
+
+                if (!parms.err) {
+
+                    console.log("parms:", JSON.stringify(parms));
+
+                    mongoClient.connect(parms.mongoUrl, function (err, db) {
+
+                        if (err) {
+                            console.log("Unable to connect to the MongoDB server. Error: ", err);
+                            response.end(JSON.stringify({"Unable to connect to the MongoDB server. Error: ": err}));
+                        } else {
+
+                            db.collection(parms.collection).find(parms.find, parms.project, {
+                                limit: parms.limit
+                            }).toArray(function (err1, docs) {
+                                if (err1) {
+                                    console.log("toArray() error: ", err1);
+                                    response.end(JSON.stringify({}));
+                                } else {
+                                    if (docs !== null) {
+                                        db.close();
+                                        response.end(JSON.stringify(docs));
+                                    } else {
+                                        db.close();
+                                        response.end(JSON.stringify({}));
+                                    }
+                                }
+                            });
+                        }
+
+                    });
+                } else {
+                    console.log("parms.err", parms.err);
+                    console.log("parms.err.error.message", parms.err.error.message);
+                    response.end(JSON.stringify({}));
+                }
+            }
+            else {
+                response.end(JSON.stringify({"required": "limit=#"}));
             }
         }
-        else {
-            response.end(JSON.stringify({"required": "limit=#"}));
-        }
+
     }
+
 }
 
 function recode(enc, parms) {
