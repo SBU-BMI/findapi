@@ -4,11 +4,10 @@ var mongoClient = require("mongodb").MongoClient,
     ObjectID = require('mongodb').ObjectID,
     url = require("url"),
     port = 3000,
-    db = "u24_luad",
+    db = "quip",
     collection = "objects";
 
-var jwt = require('jsonwebtoken');
-var secret = process.env.JWT_SECRET || "CHANGE_THIS_TO_SOMETHING_RANDOM"; // super secret
+var app = require('./helpers'); // auth, token verification & render helpers
 
 const http = require('http');
 
@@ -25,43 +24,27 @@ if (monhost && monport) {
 }
 else {
     console.log("Docker IP and mapped port");
-    //mongoUrl = "mongodb://172.17.0.1:27015/";
     mongoUrl = "mongodb://127.0.0.1:27017/";
 
-}
-
-function verify(token) {
-    var decoded = false;
-    try {
-        decoded = jwt.verify(token, secret);
-    } catch (e) {
-        decoded = false; // still false
-    }
-    return decoded;
-}
-
-// show fail page (login)
-function authFail(res) {
-    res.writeHead(401, {'content-type': 'text/html'});
-    return res.end("Epic fail! Back to login!"); // send to login
 }
 
 function handleRequest(request, response) {
     console.log(Date());
 
-    // PTF: Self-signed token.
-    var user = {id: 3};
-    var token = jwt.sign({user: user.id}, secret);
-    //var token = request.headers.authorization;
+    // PTF: FAKE TOKEN.
+    var token = app.generateToken();
+    // TODO: Uncomment when connected to pathdb
+    // var valid = app.validate(request);
 
-    var decoded = verify(token);
-    if (!decoded) {
-        authFail(response);
+    var valid = true;
+    if (!valid) {
+        app.authFail(response);
 
     } else {
         response.writeHead(200, {
             'content-type': 'text/html',
-            'authorization': token
+            'authorization': token,
+            'Set-Cookie': 'access_token=' + token
         });
 
         var urlString = request.url,
