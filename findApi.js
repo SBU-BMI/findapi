@@ -3,7 +3,7 @@
 const { MongoClient, ObjectId } = require("mongodb");
 const http = require("http");
 
-const PORT = 3000;
+const PORT = parseInt(process.env.PORT, 10) || 3000;
 const DEFAULT_DB = "u24_luad";
 const DEFAULT_COLLECTION = "objects";
 const MAX_LIMIT = 10000;
@@ -11,7 +11,10 @@ const ALLOWED_DBS = new Set([DEFAULT_DB]);
 const ALLOWED_COLLECTIONS = new Set([DEFAULT_COLLECTION]);
 
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
-const RATE_LIMIT_MAX = parseInt(process.env.RATE_LIMIT_MAX, 10) || 100;
+const parsedRateLimitMax = parseInt(process.env.RATE_LIMIT_MAX, 10);
+const RATE_LIMIT_MAX = Number.isInteger(parsedRateLimitMax) && parsedRateLimitMax > 0
+    ? parsedRateLimitMax
+    : 100;
 
 const monhost = process.env.MONHOST;
 const monport = process.env.MONPORT;
@@ -25,9 +28,10 @@ if (monhost && monport) {
 
 const requestCounts = new Map();
 
-setInterval(function () {
+const rateLimitCleanupInterval = setInterval(function () {
     requestCounts.clear();
 }, RATE_LIMIT_WINDOW_MS);
+rateLimitCleanupInterval.unref();
 
 function getClientIp(request) {
     return request.socket.remoteAddress || "unknown";
@@ -74,14 +78,39 @@ function parseQueryParams(urlString) {
 
     const parms = {};
     str.split("&").forEach(function (pp) {
-        pp = pp.split("=");
-        if (parseFloat(pp[1])) {
-            pp[1] = parseFloat(pp[1]);
+        if (!pp) {
+            return;
         }
-        parms[pp[0]] = pp[1];
+
+        pp = pp.split("=");
+        const key = decodeURIComponent(pp[0] || "");
+        const rawValue = decodeURIComponent(pp[1] || "");
+
+        if (rawValue !== "" && !Number.isNaN(Number(rawValue))) {
+            parms[key] = Number(rawValue);
+            return;
+        }
+
+        parms[key] = rawValue;
     });
 
     return parms;
+}
+
+function parseLimit(limitValue) {
+    if (limitValue === undefined || limitValue === null || limitValue === "") {
+        return null;
+    }
+
+    if (!Number.isInteger(limitValue)) {
+        return null;
+    }
+
+    if (limitValue <= 0) {
+        return null;
+    }
+
+    return Math.min(limitValue, MAX_LIMIT);
 }
 
 function recode(enc, parms) {
@@ -126,13 +155,10 @@ async function handleRequest(request, response) {
         return;
     }
 
-    if (!parms.limit || parms.limit === 0) {
-        response.end("");
+    const limit = parseLimit(parms.limit);
+    if (limit === null) {
+        sendJson(response, 400, { error: "limit must be a positive integer" });
         return;
-    }
-
-    if (parms.limit > MAX_LIMIT) {
-        parms.limit = MAX_LIMIT;
     }
 
     const dbName = parms.db || DEFAULT_DB;
@@ -188,7 +214,7 @@ async function handleRequest(request, response) {
         const docs = await db.collection(collectionName)
             .find(findQuery)
             .project(projectQuery)
-            .limit(parms.limit)
+            .limit(limit)
             .toArray();
         sendJson(response, 200, docs || []);
     } catch (err) {
@@ -201,6 +227,10 @@ async function handleRequest(request, response) {
 }
 
 const server = http.createServer(handleRequest);
+server.on("error", function (err) {
+    console.error("server startup failed:", err.message);
+    process.exit(1);
+});
 server.listen(PORT, function () {
     console.log("listening on port " + PORT);
 });
