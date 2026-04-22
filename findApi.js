@@ -26,6 +26,8 @@ if (monhost && monport) {
     mongoUrl = "mongodb://172.17.0.1:27015/";
 }
 
+const mongoClient = new MongoClient(mongoUrl);
+
 const requestCounts = new Map();
 
 const rateLimitCleanupInterval = setInterval(function () {
@@ -175,8 +177,6 @@ async function handleRequest(request, response) {
             return;
         }
 
-        const connectionUrl = mongoUrl + dbName;
-
         let findQuery = {};
         if (parms.find) {
             findQuery = recode(parms.find, parms);
@@ -208,10 +208,8 @@ async function handleRequest(request, response) {
             projectQuery = sanitizeQuery(projectQuery);
         }
 
-        let client;
         try {
-            client = await MongoClient.connect(connectionUrl);
-            const db = client.db(dbName);
+            const db = mongoClient.db(dbName);
             const docs = await db.collection(collectionName)
                 .find(findQuery)
                 .project(projectQuery)
@@ -220,12 +218,6 @@ async function handleRequest(request, response) {
             sendJson(response, 200, docs || []);
         } catch (err) {
             sendJson(response, 500, { error: "database query failed" });
-        } finally {
-            if (client) {
-                try {
-                    await client.close();
-                } catch (_) {}
-            }
         }
     } catch (err) {
         sendJson(response, 400, { error: "malformed request" });
@@ -240,3 +232,14 @@ server.on("error", function (err) {
 server.listen(PORT, function () {
     console.log("listening on port " + PORT);
 });
+
+function shutdown() {
+    server.close(function () {
+        mongoClient.close().then(function () {
+            process.exit(0);
+        });
+    });
+}
+
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
