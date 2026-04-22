@@ -1,8 +1,7 @@
 // findApi.js
 // ========
-const mongoClient = require("mongodb").MongoClient;
-const ObjectID = require("mongodb").ObjectID;
-const url = require("url");
+const { MongoClient, ObjectId } = require("mongodb");
+const http = require("http");
 
 const PORT = 3000;
 const DEFAULT_DB = "u24_luad";
@@ -11,17 +10,34 @@ const MAX_LIMIT = 10000;
 const ALLOWED_DBS = new Set([DEFAULT_DB]);
 const ALLOWED_COLLECTIONS = new Set([DEFAULT_COLLECTION]);
 
-const http = require("http");
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const RATE_LIMIT_MAX = parseInt(process.env.RATE_LIMIT_MAX, 10) || 100;
 
 const monhost = process.env.MONHOST;
 const monport = process.env.MONPORT;
 
 let mongoUrl = "";
-
 if (monhost && monport) {
     mongoUrl = "mongodb://" + monhost + ":" + monport + "/";
 } else {
     mongoUrl = "mongodb://172.17.0.1:27015/";
+}
+
+const requestCounts = new Map();
+
+setInterval(function () {
+    requestCounts.clear();
+}, RATE_LIMIT_WINDOW_MS);
+
+function getClientIp(request) {
+    return request.socket.remoteAddress || "unknown";
+}
+
+function isRateLimited(request) {
+    const ip = getClientIp(request);
+    const count = requestCounts.get(ip) || 0;
+    requestCounts.set(ip, count + 1);
+    return count + 1 > RATE_LIMIT_MAX;
 }
 
 function sanitizeQuery(query) {
@@ -48,10 +64,10 @@ function parseQueryParams(urlString) {
         urlString = urlString.slice(0, -1);
     }
 
-    const urlObject = url.parse(urlString);
-    if (!urlObject.search) return null;
+    let searchIndex = urlString.indexOf("?");
+    if (searchIndex === -1) return null;
 
-    let str = urlObject.search.slice(1);
+    let str = urlString.slice(searchIndex + 1);
     if (str.indexOf("&_=") > -1) {
         str = str.substring(0, str.indexOf("&_="));
     }
@@ -68,7 +84,29 @@ function parseQueryParams(urlString) {
     return parms;
 }
 
-function handleRequest(request, response) {
+function recode(enc, parms) {
+    try {
+        let dec = decodeURI(enc);
+        if (dec.indexOf("'") > -1) {
+            dec = dec.replace(/'/g, '"');
+        }
+        return JSON.parse(dec);
+    } catch (err) {
+        parms.err = { error: err };
+        return {};
+    }
+}
+
+function sendJson(response, statusCode, body) {
+    response.writeHead(statusCode, {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": process.env.ALLOWED_ORIGIN || "null",
+        "X-Content-Type-Options": "nosniff"
+    });
+    response.end(JSON.stringify(body));
+}
+
+async function handleRequest(request, response) {
     const urlString = request.url;
 
     if (urlString.indexOf("favicon.ico") !== -1) {
@@ -76,19 +114,19 @@ function handleRequest(request, response) {
         return;
     }
 
+    if (isRateLimited(request)) {
+        sendJson(response, 429, { error: "too many requests" });
+        return;
+    }
+
     const parms = parseQueryParams(urlString);
 
     if (!parms) {
-        response.end(JSON.stringify({"required": "limit=#"}));
+        sendJson(response, 200, { required: "limit=#" });
         return;
     }
 
-    if (!parms.limit) {
-        response.end("");
-        return;
-    }
-
-    if (parms.limit === 0) {
+    if (!parms.limit || parms.limit === 0) {
         response.end("");
         return;
     }
@@ -101,26 +139,22 @@ function handleRequest(request, response) {
     const collectionName = parms.collection || DEFAULT_COLLECTION;
 
     if (!ALLOWED_DBS.has(dbName)) {
-        response.writeHead(403, {"Content-Type": "application/json"});
-        response.end(JSON.stringify({"error": "database not allowed"}));
+        sendJson(response, 403, { error: "database not allowed" });
         return;
     }
 
     if (!ALLOWED_COLLECTIONS.has(collectionName)) {
-        response.writeHead(403, {"Content-Type": "application/json"});
-        response.end(JSON.stringify({"error": "collection not allowed"}));
+        sendJson(response, 403, { error: "collection not allowed" });
         return;
     }
 
-    // User cannot control the MongoDB connection URL
     const connectionUrl = mongoUrl + dbName;
 
     let findQuery = {};
     if (parms.find) {
         findQuery = recode(parms.find, parms);
         if (parms.err) {
-            response.writeHead(400, {"Content-Type": "application/json"});
-            response.end(JSON.stringify({"error": "invalid find parameter"}));
+            sendJson(response, 400, { error: "invalid find parameter" });
             return;
         }
         findQuery = sanitizeQuery(findQuery);
@@ -129,12 +163,11 @@ function handleRequest(request, response) {
     if (parms.offset) {
         const offsetValue = recode(parms.offset, parms);
         if (parms.err) {
-            response.writeHead(400, {"Content-Type": "application/json"});
-            response.end(JSON.stringify({"error": "invalid offset parameter"}));
+            sendJson(response, 400, { error: "invalid offset parameter" });
             return;
         }
         if (typeof offsetValue === "string" && /^[0-9a-fA-F]{24}$/.test(offsetValue)) {
-            findQuery._id = {"$gt": new ObjectID.createFromHexString(offsetValue)};
+            findQuery._id = { $gt: ObjectId.createFromHexString(offsetValue) };
         }
     }
 
@@ -142,48 +175,28 @@ function handleRequest(request, response) {
     if (parms.project) {
         projectQuery = recode(parms.project, parms);
         if (parms.err) {
-            response.writeHead(400, {"Content-Type": "application/json"});
-            response.end(JSON.stringify({"error": "invalid project parameter"}));
+            sendJson(response, 400, { error: "invalid project parameter" });
             return;
         }
         projectQuery = sanitizeQuery(projectQuery);
     }
 
-    response.writeHead(200, {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": process.env.ALLOWED_ORIGIN || "null",
-        "X-Content-Type-Options": "nosniff"
-    });
-
-    mongoClient.connect(connectionUrl, function (err, db) {
-        if (err) {
-            response.end(JSON.stringify({"error": "database connection failed"}));
-            return;
-        }
-
-        db.collection(collectionName).find(findQuery, projectQuery, {
-            limit: parms.limit
-        }).toArray(function (err1, docs) {
-            db.close();
-            if (err1) {
-                response.end(JSON.stringify({}));
-                return;
-            }
-            response.end(JSON.stringify(docs || {}));
-        });
-    });
-}
-
-function recode(enc, parms) {
+    let client;
     try {
-        let dec = decodeURI(enc);
-        if (dec.indexOf("'") > -1) {
-            dec = dec.replace(/'/g, '"');
-        }
-        return JSON.parse(dec);
+        client = await MongoClient.connect(connectionUrl);
+        const db = client.db(dbName);
+        const docs = await db.collection(collectionName)
+            .find(findQuery)
+            .project(projectQuery)
+            .limit(parms.limit)
+            .toArray();
+        sendJson(response, 200, docs || []);
     } catch (err) {
-        parms.err = {error: err};
-        return {};
+        sendJson(response, 500, { error: "database query failed" });
+    } finally {
+        if (client) {
+            await client.close();
+        }
     }
 }
 
