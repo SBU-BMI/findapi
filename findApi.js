@@ -235,7 +235,7 @@ server.listen(PORT, function () {
 
 function shutdown() {
     server.close(function () {
-        mongoClient.close().then(function () {
+        mongoClient.close().finally(function () {
             process.exit(0);
         });
     });
