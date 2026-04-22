@@ -136,93 +136,99 @@ function sendJson(response, statusCode, body) {
 }
 
 async function handleRequest(request, response) {
-    const urlString = request.url;
-
-    if (urlString.indexOf("favicon.ico") !== -1) {
-        response.end("");
-        return;
-    }
-
-    if (isRateLimited(request)) {
-        sendJson(response, 429, { error: "too many requests" });
-        return;
-    }
-
-    const parms = parseQueryParams(urlString);
-
-    if (!parms) {
-        sendJson(response, 200, { required: "limit=#" });
-        return;
-    }
-
-    const limit = parseLimit(parms.limit);
-    if (limit === null) {
-        sendJson(response, 400, { error: "limit must be a positive integer" });
-        return;
-    }
-
-    const dbName = parms.db || DEFAULT_DB;
-    const collectionName = parms.collection || DEFAULT_COLLECTION;
-
-    if (!ALLOWED_DBS.has(dbName)) {
-        sendJson(response, 403, { error: "database not allowed" });
-        return;
-    }
-
-    if (!ALLOWED_COLLECTIONS.has(collectionName)) {
-        sendJson(response, 403, { error: "collection not allowed" });
-        return;
-    }
-
-    const connectionUrl = mongoUrl + dbName;
-
-    let findQuery = {};
-    if (parms.find) {
-        findQuery = recode(parms.find, parms);
-        if (parms.err) {
-            sendJson(response, 400, { error: "invalid find parameter" });
-            return;
-        }
-        findQuery = sanitizeQuery(findQuery);
-    }
-
-    if (parms.offset) {
-        const offsetValue = recode(parms.offset, parms);
-        if (parms.err) {
-            sendJson(response, 400, { error: "invalid offset parameter" });
-            return;
-        }
-        if (typeof offsetValue === "string" && /^[0-9a-fA-F]{24}$/.test(offsetValue)) {
-            findQuery._id = { $gt: ObjectId.createFromHexString(offsetValue) };
-        }
-    }
-
-    let projectQuery = {};
-    if (parms.project) {
-        projectQuery = recode(parms.project, parms);
-        if (parms.err) {
-            sendJson(response, 400, { error: "invalid project parameter" });
-            return;
-        }
-        projectQuery = sanitizeQuery(projectQuery);
-    }
-
-    let client;
     try {
-        client = await MongoClient.connect(connectionUrl);
-        const db = client.db(dbName);
-        const docs = await db.collection(collectionName)
-            .find(findQuery)
-            .project(projectQuery)
-            .limit(limit)
-            .toArray();
-        sendJson(response, 200, docs || []);
-    } catch (err) {
-        sendJson(response, 500, { error: "database query failed" });
-    } finally {
-        if (client) {
-            await client.close();
+        const urlString = request.url;
+
+        if (urlString.indexOf("favicon.ico") !== -1) {
+            response.end("");
+            return;
         }
+
+        if (isRateLimited(request)) {
+            sendJson(response, 429, { error: "too many requests" });
+            return;
+        }
+
+        const parms = parseQueryParams(urlString);
+
+        if (!parms) {
+            sendJson(response, 200, { required: "limit=#" });
+            return;
+        }
+
+        const limit = parseLimit(parms.limit);
+        if (limit === null) {
+            sendJson(response, 400, { error: "limit must be a positive integer" });
+            return;
+        }
+
+        const dbName = parms.db || DEFAULT_DB;
+        const collectionName = parms.collection || DEFAULT_COLLECTION;
+
+        if (!ALLOWED_DBS.has(dbName)) {
+            sendJson(response, 403, { error: "database not allowed" });
+            return;
+        }
+
+        if (!ALLOWED_COLLECTIONS.has(collectionName)) {
+            sendJson(response, 403, { error: "collection not allowed" });
+            return;
+        }
+
+        const connectionUrl = mongoUrl + dbName;
+
+        let findQuery = {};
+        if (parms.find) {
+            findQuery = recode(parms.find, parms);
+            if (parms.err) {
+                sendJson(response, 400, { error: "invalid find parameter" });
+                return;
+            }
+            findQuery = sanitizeQuery(findQuery);
+        }
+
+        if (parms.offset) {
+            const offsetValue = recode(parms.offset, parms);
+            if (parms.err) {
+                sendJson(response, 400, { error: "invalid offset parameter" });
+                return;
+            }
+            if (typeof offsetValue === "string" && /^[0-9a-fA-F]{24}$/.test(offsetValue)) {
+                findQuery._id = { $gt: ObjectId.createFromHexString(offsetValue) };
+            }
+        }
+
+        let projectQuery = {};
+        if (parms.project) {
+            projectQuery = recode(parms.project, parms);
+            if (parms.err) {
+                sendJson(response, 400, { error: "invalid project parameter" });
+                return;
+            }
+            projectQuery = sanitizeQuery(projectQuery);
+        }
+
+        let client;
+        try {
+            client = await MongoClient.connect(connectionUrl);
+            const db = client.db(dbName);
+            const docs = await db.collection(collectionName)
+                .find(findQuery)
+                .project(projectQuery)
+                .limit(limit)
+                .toArray();
+            sendJson(response, 200, docs || []);
+        } catch (err) {
+            sendJson(response, 500, { error: "database query failed" });
+        } finally {
+            if (client) {
+                try {
+                    await client.close();
+                } catch (_) {}
+            }
+        }
+    } catch (err) {
+        sendJson(response, 400, { error: "malformed request" });
     }
 }
 
