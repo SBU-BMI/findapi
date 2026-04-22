@@ -1,197 +1,193 @@
 // findApi.js
 // ========
-var mongoClient = require("mongodb").MongoClient,
-    ObjectID = require('mongodb').ObjectID,
-    url = require("url"),
-    port = 3000,
-    db = "u24_luad",
-    collection = "objects";
+const mongoClient = require("mongodb").MongoClient;
+const ObjectID = require("mongodb").ObjectID;
+const url = require("url");
 
-const http = require('http');
+const PORT = 3000;
+const DEFAULT_DB = "u24_luad";
+const DEFAULT_COLLECTION = "objects";
+const MAX_LIMIT = 10000;
+const ALLOWED_DBS = new Set([DEFAULT_DB]);
+const ALLOWED_COLLECTIONS = new Set([DEFAULT_COLLECTION]);
 
-var mongoUrl = "";
-var monhost = process.env.MONHOST;
-var monport = process.env.MONPORT;
+const http = require("http");
 
-console.log("MONHOST", monhost);
-console.log("MONPORT", monport);
+const monhost = process.env.MONHOST;
+const monport = process.env.MONPORT;
 
-if (monhost && monport)
-{
-    console.log("Got MongoDB host and port");
+let mongoUrl = "";
+
+if (monhost && monport) {
     mongoUrl = "mongodb://" + monhost + ":" + monport + "/";
-}
-else
-{
-    console.log("Docker IP and mapped port");
+} else {
     mongoUrl = "mongodb://172.17.0.1:27015/";
 }
 
-function handleRequest(request, response) {
-    console.log(Date());
-    var urlString = request.url,
-        parms = {}, // search parms
-        urlObject,
-        max = 10000, // maximum number of records at a time
-        med = 0; // default number of records at a time
+function sanitizeQuery(query) {
+    if (query === null || query === undefined) return query;
+    if (typeof query !== "object") return query;
 
+    const sanitized = {};
+    for (const key of Object.keys(query)) {
+        if (key.startsWith("$")) {
+            continue;
+        }
+        const value = query[key];
+        if (typeof value === "object" && value !== null) {
+            sanitized[key] = sanitizeQuery(value);
+        } else {
+            sanitized[key] = value;
+        }
+    }
+    return sanitized;
+}
+
+function parseQueryParams(urlString) {
     if (urlString.endsWith(";")) {
         urlString = urlString.slice(0, -1);
     }
 
-    console.log("urlString", urlString);
-    urlObject = url.parse(urlString);
+    const urlObject = url.parse(urlString);
+    if (!urlObject.search) return null;
+
+    let str = urlObject.search.slice(1);
+    if (str.indexOf("&_=") > -1) {
+        str = str.substring(0, str.indexOf("&_="));
+    }
+
+    const parms = {};
+    str.split("&").forEach(function (pp) {
+        pp = pp.split("=");
+        if (parseFloat(pp[1])) {
+            pp[1] = parseFloat(pp[1]);
+        }
+        parms[pp[0]] = pp[1];
+    });
+
+    return parms;
+}
+
+function handleRequest(request, response) {
+    const urlString = request.url;
 
     if (urlString.indexOf("favicon.ico") !== -1) {
-        response.end(""); //<-- favicon being requested
-    } else {
+        response.end("");
+        return;
+    }
 
-        console.log("Client IP: " + request.ip);
-        console.log("Client Address: " + request.connection.remoteAddress);
+    const parms = parseQueryParams(urlString);
 
-        if (urlObject.search) {
+    if (!parms) {
+        response.end(JSON.stringify({"required": "limit=#"}));
+        return;
+    }
 
-            var str = urlObject.search.slice(1);
-            //delete stuff off the end that does not belong there
-            //eg. &_=1467995391225
-            if (str.indexOf("&_=") > -1)
-                str = str.substring(0, str.indexOf("&_="));
+    if (!parms.limit) {
+        response.end("");
+        return;
+    }
 
-            //if (urlObject.search) { // parse request parameters
-            str.split("&").forEach(function (pp) {
-                pp = pp.split("=");
-                if (parseFloat(pp[1])) {
-                    pp[1] = parseFloat(pp[1]);
-                }
-                parms[pp[0]] = pp[1];
-            });
-            //}
+    if (parms.limit === 0) {
+        response.end("");
+        return;
+    }
 
-            // default parameter values
-            if (!parms.limit) {
-                parms.limit = med;
-                response.end("");
-                console.log("Request with no limit parameter!");
-                return;
-            }
+    if (parms.limit > MAX_LIMIT) {
+        parms.limit = MAX_LIMIT;
+    }
 
-            if (parms.limit === 0) {
-                response.end("");
-                console.log("Request with limit===0!");
-                return;
-            }
+    const dbName = parms.db || DEFAULT_DB;
+    const collectionName = parms.collection || DEFAULT_COLLECTION;
 
-            if (parms.limit > max) {
-                parms.limit = max;
-            }
+    if (!ALLOWED_DBS.has(dbName)) {
+        response.writeHead(403, {"Content-Type": "application/json"});
+        response.end(JSON.stringify({"error": "database not allowed"}));
+        return;
+    }
 
-            if (!parms.db) {
-                parms.db = db;
-            } // <-- default db
+    if (!ALLOWED_COLLECTIONS.has(collectionName)) {
+        response.writeHead(403, {"Content-Type": "application/json"});
+        response.end(JSON.stringify({"error": "collection not allowed"}));
+        return;
+    }
 
-            if (!parms.mongoUrl) {
-                parms.mongoUrl = mongoUrl + parms.db; // <-- default mongo
-            }
-            else {
-                var str = parms.mongoUrl;
-                if (str.endsWith("/")) {
-                    parms.mongoUrl += parms.db;
-                }
-                else {
-                    parms.mongoUrl += ("/" + parms.db);
-                }
+    // User cannot control the MongoDB connection URL
+    const connectionUrl = mongoUrl + dbName;
 
-            }
-
-            if (!parms.collection) {
-                parms.collection = collection;
-            } // <-- default collection
-
-            if (!parms.find) { // find
-                parms.find = {};
-            } else {
-                parms.find = recode(parms.find, parms);
-            }
-	    if (parms.offset) {
-               parms.offset = recode(parms.offset,parms);
-               parms.offset = new ObjectID.createFromHexString(parms.offset);
-               parms.find._id={"$gt":parms.offset};
-	    }
-
-            if (!parms.project) { // project
-                parms.project = {};
-            } else {
-                parms.project = recode(parms.project, parms);
-            }
-
-            response.writeHead(200, {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*"
-            });
-
-            if (!parms.err) {
-
-                console.log("parms:", JSON.stringify(parms));
-
-                mongoClient.connect(parms.mongoUrl, function (err, db) {
-
-                    if (err) {
-                        console.log("Unable to connect to the MongoDB server. Error: ", err);
-                        response.end(JSON.stringify({"Unable to connect to the MongoDB server. Error: ": err}));
-                    } else {
-
-                        db.collection(parms.collection).find(parms.find, parms.project, {
-                            limit: parms.limit
-                        }).toArray(function (err1, docs) {
-                            if (err1) {
-                                console.log("toArray() error: ", err1);
-                                response.end(JSON.stringify({}));
-                            } else {
-                                if (docs !== null) {
-                                    db.close();
-                                    response.end(JSON.stringify(docs));
-                                } else {
-                                    db.close();
-                                    response.end(JSON.stringify({}));
-                                }
-                            }
-                        });
-                    }
-
-                });
-            } else {
-                console.log("parms.err", parms.err);
-                console.log("parms.err.error.message", parms.err.error.message);
-                response.end(JSON.stringify({}));
-            }
+    let findQuery = {};
+    if (parms.find) {
+        findQuery = recode(parms.find, parms);
+        if (parms.err) {
+            response.writeHead(400, {"Content-Type": "application/json"});
+            response.end(JSON.stringify({"error": "invalid find parameter"}));
+            return;
         }
-        else {
-            response.end(JSON.stringify({"required": "limit=#"}));
+        findQuery = sanitizeQuery(findQuery);
+    }
+
+    if (parms.offset) {
+        const offsetValue = recode(parms.offset, parms);
+        if (parms.err) {
+            response.writeHead(400, {"Content-Type": "application/json"});
+            response.end(JSON.stringify({"error": "invalid offset parameter"}));
+            return;
+        }
+        if (typeof offsetValue === "string" && /^[0-9a-fA-F]{24}$/.test(offsetValue)) {
+            findQuery._id = {"$gt": new ObjectID.createFromHexString(offsetValue)};
         }
     }
+
+    let projectQuery = {};
+    if (parms.project) {
+        projectQuery = recode(parms.project, parms);
+        if (parms.err) {
+            response.writeHead(400, {"Content-Type": "application/json"});
+            response.end(JSON.stringify({"error": "invalid project parameter"}));
+            return;
+        }
+        projectQuery = sanitizeQuery(projectQuery);
+    }
+
+    response.writeHead(200, {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": process.env.ALLOWED_ORIGIN || "null",
+        "X-Content-Type-Options": "nosniff"
+    });
+
+    mongoClient.connect(connectionUrl, function (err, db) {
+        if (err) {
+            response.end(JSON.stringify({"error": "database connection failed"}));
+            return;
+        }
+
+        db.collection(collectionName).find(findQuery, projectQuery, {
+            limit: parms.limit
+        }).toArray(function (err1, docs) {
+            db.close();
+            if (err1) {
+                response.end(JSON.stringify({}));
+                return;
+            }
+            response.end(JSON.stringify(docs || {}));
+        });
+    });
 }
 
 function recode(enc, parms) {
-    var json = "",
-        dec = "";
     try {
-        // recode operators
-        dec = decodeURI(enc);
+        let dec = decodeURI(enc);
         if (dec.indexOf("'") > -1) {
             dec = dec.replace(/'/g, '"');
         }
-        json = JSON.parse(dec);
+        return JSON.parse(dec);
     } catch (err) {
-        parms.err = {
-            error: err
-        };
-        console.log(err, enc);
+        parms.err = {error: err};
+        return {};
     }
-
-    return json;
 }
 
-var server = http.createServer(handleRequest);
-server.listen(port, function () {
-    console.log('listening on port ' + port);
+const server = http.createServer(handleRequest);
+server.listen(PORT, function () {
+    console.log("listening on port " + PORT);
 });
